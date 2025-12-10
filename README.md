@@ -11,10 +11,20 @@ Try it now: [HuggingFace Space](https://huggingface.co/spaces/RickRossTN/voice-c
 **Everything runs in your browser:**
 - **Speech-to-Text**: Whisper model via WebGPU/WASM
 - **Voice Activity Detection**: Silero VAD detects when you're speaking
-- **LLM**: Qwen 1.5B runs directly in the browser via WebLLM
+- **LLM**: Qwen 1.5B via WebLLM (easily swappable - see below)
 - **Text-to-Speech**: Supertonic TTS with 10 natural voices
 
 No audio leaves your device. No API keys needed. Just open and talk.
+
+## Swap In Your Own LLM
+
+**The built-in LLM is just a demo.** The real value is the voice pipeline - STT, VAD, and TTS all wired up and working. Rip out the tiny in-browser model and point it at any LLM you want:
+
+- **Claude, GPT-4, Gemini** - via API routes
+- **Ollama, LM Studio** - local inference servers  
+- **Any OpenAI-compatible endpoint**
+
+It's ~10 lines of code to swap. See [Using a Different LLM](#using-a-different-llm) below.
 
 ## Quick Start
 
