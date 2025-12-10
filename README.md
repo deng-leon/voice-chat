@@ -4,7 +4,7 @@ A hands-free AI voice assistant that runs entirely in your browser. Speech recog
 
 ## Live Demo
 
-Try it now: [HuggingFace Space](https://huggingface.co/spaces/RickRossTN/voice-chat)
+Try it now: [HuggingFace Space](https://huggingface.co/spaces/RickRossTN/ai-voice-chat)
 
 ## What Makes This Different
 
