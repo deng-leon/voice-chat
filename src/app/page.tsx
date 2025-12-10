@@ -38,6 +38,7 @@ export default function VoiceChat() {
   const isProcessingRef = useRef(false)  // Lock to prevent parallel LLM/TTS calls
   const abortControllerRef = useRef<AbortController | null>(null)  // For cancelling LLM requests
   const pendingUserInputRef = useRef<string | null>(null)  // Queue user input during processing
+  const webllmReadyRef = useRef(false)  // Track WebLLM ready state for callbacks
 
   // WebGPU TTS
   const tts = useTTS({
@@ -67,7 +68,12 @@ export default function VoiceChat() {
     }
   })
 
-  // Keep refs in sync
+  // Keep refs in sync for use in callbacks
+  const webllmRef = useRef(webllm)
+  useEffect(() => {
+    webllmRef.current = webllm
+  }, [webllm])
+
   useEffect(() => {
     isCallActiveRef.current = isCallActive
   }, [isCallActive])
@@ -192,10 +198,13 @@ export default function VoiceChat() {
     try {
       let assistantMessage: string
 
-      if (llmMode === "browser" && webllm.isReady) {
+      const currentWebllm = webllmRef.current
+      console.log("[Voice] LLM decision:", { llmMode, webllmReady: currentWebllm.isReady, webllmStatus: currentWebllm.status })
+      
+      if (llmMode === "browser" && currentWebllm.isReady) {
         // Use in-browser WebLLM
         console.log("[Voice] Using WebLLM (in-browser)")
-        assistantMessage = await webllm.chat(
+        assistantMessage = await currentWebllm.chat(
           conversationHistory.map(m => ({ role: m.role, content: m.content })),
           SYSTEM_PROMPT
         )

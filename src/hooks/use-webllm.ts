@@ -39,6 +39,7 @@ export function useWebLLM(options: UseWebLLMOptions = {}) {
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const updateStatus = useCallback((newStatus: WebLLMStatus) => {
+    console.log("[WebLLM] Status:", newStatus)
     setStatus(newStatus)
     onStatusChange?.(newStatus)
   }, [onStatusChange])
