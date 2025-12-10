@@ -379,7 +379,8 @@ export default function VoiceChat() {
         <ConversationContent className="max-w-2xl mx-auto">
           {messages.length === 0 ? (
             <div className="text-center py-20">
-              <h1 className="text-2xl font-semibold text-white mb-2">Voice Chat</h1>
+              <h1 className="text-2xl font-semibold text-white mb-2">AI Voice Chat</h1>
+              <p className="text-zinc-400 text-sm mb-4">100% in-browser — nothing leaves your device</p>
               <p className="text-zinc-500">
                 {status === "idle" 
                   ? "Click Initialize to load the voice models"
@@ -387,7 +388,7 @@ export default function VoiceChat() {
                   ? statusMessage
                   : isCallActive 
                   ? "Start speaking..." 
-                  : "Click the mic to start"}
+                  : "Click the phone to start a call"}
               </p>
               {status === "loading" && (tts.loadProgress > 0 || webllm.loadProgress > 0) && (
                 <div className="mt-4 w-64 mx-auto space-y-2">
