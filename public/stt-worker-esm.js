@@ -19,7 +19,7 @@ const suppress = (...args) => args.some(arg =>
 console.warn = function(...args) { if (!suppress(...args)) originalWarn.apply(console, args) }
 console.error = function(...args) { if (!suppress(...args)) originalError.apply(console, args) }
 
-import { AutoModel, pipeline, Tensor, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1/+esm"
+import { AutoModel, pipeline, Tensor, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/+esm"
 
 // ============ Constants ============
 const INPUT_SAMPLE_RATE = 16000
