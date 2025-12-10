@@ -20,10 +20,10 @@ No audio leaves your device. No API keys needed. Just open and talk.
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Run development server
-npm run dev
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in Chrome or Edge.
