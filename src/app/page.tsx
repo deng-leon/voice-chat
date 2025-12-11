@@ -8,35 +8,17 @@ import { Message, MessageContent } from "@/components/ui/message"
 import { Mic, MicOff, Volume2, VolumeX, Phone, PhoneOff, ChevronDown, Settings, X } from "lucide-react"
 import { useTTS, type TTSVoice } from "@/hooks/use-tts"
 import { useWebLLM } from "@/hooks/use-webllm"
-import { HfInference } from "@huggingface/inference"
 
 type Status = "idle" | "loading" | "ready" | "listening" | "recording" | "transcribing" | "thinking" | "speaking" | "error"
-type LLMMode = "webllm" | "huggingface"
+type LLMMode = "webllm" | "webllm-small"
 
 // Detect iOS/iPadOS
 const isIOS = typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent)
 
-// HuggingFace Inference client (handles CORS properly)
-const hf = new HfInference() // No token = uses free public inference
-
-async function callHuggingFaceAPI(
-  messages: { role: string; content: string }[],
-  systemPrompt: string,
-  signal?: AbortSignal
-): Promise<string> {
-  const chatMessages = [
-    { role: "system" as const, content: systemPrompt },
-    ...messages.map(m => ({ role: m.role as "user" | "assistant", content: m.content }))
-  ]
-  
-  const response = await hf.chatCompletion({
-    model: "Qwen/Qwen2.5-1.5B-Instruct", // Smaller model, more likely to be available
-    messages: chatMessages,
-    max_tokens: 256,
-  })
-  
-  return response.choices[0]?.message?.content || "I couldn't generate a response."
-}
+// Model selection based on device
+const DEFAULT_MODEL = isIOS ? "Qwen2.5-0.5B-Instruct-q4f16_1-MLC" : "Qwen2.5-1.5B-Instruct-q4f16_1-MLC"
+const SMALL_MODEL = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC"
+const LARGE_MODEL = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC"
 
 /*
  * USING A DIFFERENT LLM:
@@ -60,12 +42,12 @@ export default function VoiceChat() {
   const [isMicMuted, setIsMicMuted] = useState(false)
   const [showVoiceMenu, setShowVoiceMenu] = useState(false)
   const [textInput, setTextInput] = useState("")
-  const [llmMode, setLLMMode] = useState<LLMMode>(isIOS ? "huggingface" : "webllm")
+  const [llmMode, setLLMMode] = useState<LLMMode>(isIOS ? "webllm-small" : "webllm")
   const [showDebugPanel, setShowDebugPanel] = useState(false)
   const [debugInfo, setDebugInfo] = useState({
     webgpu: "checking...",
     sttBackend: "unknown",
-    llmMode: isIOS ? "huggingface" : "webllm",
+    llmMode: isIOS ? "webllm-small" : "webllm",
     vadLoaded: false,
     sttLoaded: false,
     ttsLoaded: false,
@@ -145,15 +127,11 @@ export default function VoiceChat() {
             await tts.loadModels()
             setDebugInfo(prev => ({ ...prev, ttsLoaded: true }))
             
-            // Load LLM based on mode
-            if (llmMode === "webllm") {
-              setStatusMessage("Loading LLM model (this may take a minute)...")
-              await webllm.loadModel()
-              setDebugInfo(prev => ({ ...prev, llmLoaded: true }))
-            } else {
-              // HuggingFace API - no loading needed
-              setDebugInfo(prev => ({ ...prev, llmLoaded: true, llmMode: "huggingface" }))
-            }
+            // Load LLM - use small model on iOS/mobile
+            const modelToLoad = llmMode === "webllm-small" ? SMALL_MODEL : LARGE_MODEL
+            setStatusMessage(`Loading LLM (${llmMode === "webllm-small" ? "0.5B" : "1.5B"})...`)
+            await webllm.loadModel(modelToLoad as Parameters<typeof webllm.loadModel>[0])
+            setDebugInfo(prev => ({ ...prev, llmLoaded: true }))
             
             setStatus("ready")
             setStatusMessage("Ready! Click 'Start Call' to begin.")
@@ -242,27 +220,15 @@ export default function VoiceChat() {
     try {
       const currentWebllm = webllmRef.current
       
-      let assistantMessage: string
-      
-      if (llmMode === "huggingface") {
-        // Use HuggingFace Inference API
-        console.debug("[Voice] Using HuggingFace API")
-        assistantMessage = await callHuggingFaceAPI(
-          conversationHistory.map(m => ({ role: m.role, content: m.content })),
-          SYSTEM_PROMPT,
-          abortControllerRef.current?.signal
-        )
-      } else {
-        // Use in-browser WebLLM
-        if (!currentWebllm.isReady) {
-          throw new Error("LLM not ready")
-        }
-        console.debug("[Voice] Using WebLLM (in-browser)")
-        assistantMessage = await currentWebllm.chat(
-          conversationHistory.map(m => ({ role: m.role, content: m.content })),
-          SYSTEM_PROMPT
-        )
+      // Use in-browser WebLLM (small or large model based on llmMode)
+      if (!currentWebllm.isReady) {
+        throw new Error("LLM not ready")
       }
+      console.debug(`[Voice] Using WebLLM (${llmMode})`)
+      const assistantMessage = await currentWebllm.chat(
+        conversationHistory.map(m => ({ role: m.role, content: m.content })),
+        SYSTEM_PROMPT
+      )
 
       setMessages(prev => [...prev, { role: "assistant", content: assistantMessage }])
       console.log("[LLM]", assistantMessage)
@@ -530,10 +496,10 @@ export default function VoiceChat() {
                 WebLLM
               </button>
               <button
-                onClick={() => setLLMMode("huggingface")}
-                className={`px-2 py-1 rounded ${llmMode === "huggingface" ? "bg-blue-600" : "bg-zinc-700"}`}
+                onClick={() => setLLMMode("webllm-small")}
+                className={`px-2 py-1 rounded ${llmMode === "webllm-small" ? "bg-blue-600" : "bg-zinc-700"}`}
               >
-                HF API
+                Small (0.5B)
               </button>
             </div>
           </div>
