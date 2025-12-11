@@ -224,9 +224,15 @@ export default function VoiceChat() {
       if (!currentWebllm.isReady) {
         throw new Error("LLM not ready")
       }
-      console.debug(`[Voice] Using WebLLM (${llmMode})`)
+      
+      // Limit conversation history to last 6 messages (3 exchanges) to save GPU memory
+      // This is especially important on iOS where memory is constrained
+      const MAX_HISTORY = isIOS ? 4 : 10  // Fewer on iOS
+      const recentHistory = conversationHistory.slice(-MAX_HISTORY)
+      
+      console.debug(`[Voice] Using WebLLM (${llmMode}), history: ${recentHistory.length}/${conversationHistory.length}`)
       const assistantMessage = await currentWebllm.chat(
-        conversationHistory.map(m => ({ role: m.role, content: m.content })),
+        recentHistory.map(m => ({ role: m.role, content: m.content })),
         SYSTEM_PROMPT
       )
 
