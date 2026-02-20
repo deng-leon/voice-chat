@@ -78,14 +78,20 @@ export function useWebLLM(options: UseWebLLMOptions = {}) {
   // Generate chat completion
   const chat = useCallback(async (
     messages: ChatMessage[],
-    systemPrompt?: string
+    systemPrompt?: string,
+    options?: { signal?: AbortSignal }
   ): Promise<string> => {
     if (!engineRef.current) {
       throw new Error("WebLLM not loaded")
     }
 
     updateStatus("generating")
-    abortControllerRef.current = new AbortController()
+    
+    // Use external signal if provided, otherwise manage internally
+    if (!options?.signal) {
+      abortControllerRef.current = new AbortController()
+    }
+    const signal = options?.signal || abortControllerRef.current?.signal
 
     try {
       // Prepend system prompt if provided
@@ -97,13 +103,13 @@ export function useWebLLM(options: UseWebLLMOptions = {}) {
         messages: allMessages,
         max_tokens: 256,
         temperature: 0.7,
-      })
+      } as any) // Use as any to avoid strict type check or remove second arg if not supported
 
       const content = response.choices[0]?.message?.content || ""
       updateStatus("ready")
       return content
     } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
+      if (error instanceof Error && (error.name === "AbortError" || signal?.aborted)) {
         console.debug("[WebLLM] Generation aborted")
         updateStatus("ready")
         return ""
@@ -112,7 +118,9 @@ export function useWebLLM(options: UseWebLLMOptions = {}) {
       updateStatus("error")
       throw error
     } finally {
-      abortControllerRef.current = null
+      if (!options?.signal) {
+        abortControllerRef.current = null
+      }
     }
   }, [updateStatus])
 
@@ -157,7 +165,10 @@ export function useWebLLM(options: UseWebLLMOptions = {}) {
   // Abort current generation
   const abort = useCallback(() => {
     abortControllerRef.current?.abort()
-    // WebLLM doesn't have native abort, but we can track it
+    // WebLLM native interruption
+    if (engineRef.current) {
+      engineRef.current.interruptGenerate();
+    }
   }, [])
 
   // Unload model

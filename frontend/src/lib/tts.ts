@@ -2,16 +2,65 @@ import { pipeline, TextToAudioPipeline, env } from "@huggingface/transformers";
 import { split } from "./splitter";
 import type { RawAudio } from "@huggingface/transformers";
 
-// Suppress ONNX runtime warnings by setting log severity to error only
-// @ts-ignore - onnx backend env typing
-if (env.backends?.onnx) {
-  env.backends.onnx.logSeverityLevel = 3; // 0=verbose, 1=info, 2=warning, 3=error, 4=fatal
-  env.backends.onnx.logVerbosityLevel = 0;
+// Suppress ONNX runtime and Transformers.js hub warnings
+if (typeof env !== 'undefined') {
+  // @ts-ignore
+  env.allowLocalModels = false;
+  // @ts-ignore
+  if (env.backends?.onnx) {
+    // @ts-ignore
+    env.backends.onnx.logSeverityLevel = 3; 
+    // @ts-ignore
+    env.backends.onnx.logVerbosityLevel = 0;
+  }
 }
 
-// Model from HuggingFace, voices served locally (all 10 included)
-const MODEL_ID = "onnx-community/Supertonic-TTS-ONNX";
-const VOICES_URL = "/voices/";
+// Intercept console.warn to suppress the persistent nodes assignment warning
+if (typeof window !== 'undefined') {
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const originalError = console.error;
+  const originalInfo = console.info;
+  const originalDebug = console.debug;
+
+  const suppress = (...args: any[]) => {
+    const rawMsg = args.map(arg => {
+      try { return String(arg); } catch(e) { return ""; }
+    }).join(' ');
+    
+    // Strip ANSI codes and normalize
+    const cleanMsg = rawMsg.replace(/\\x1B\\[[0-9;]*[mK]/g, '').toLowerCase();
+    
+    return [
+      'onnxruntime',
+      'verifyeachnodeisassignedtoanep',
+      'session_state.cc',
+      'execution providers',
+      'unknown model class',
+      'content-length'
+    ].some(pattern => cleanMsg.includes(pattern)) || rawMsg.includes('[W:onnxruntime');
+  };
+
+  const interceptor = (original: any) => (...args: any[]) => {
+    if (suppress(...args)) return;
+    original.apply(console, args);
+  };
+
+  console.log = interceptor(originalLog);
+  console.warn = interceptor(originalWarn);
+  console.error = interceptor(originalError);
+  console.info = interceptor(originalInfo);
+  console.debug = interceptor(originalDebug);
+}
+
+// Redirect Transformers.js to Python backend proxy (port 8000)
+env.remoteHost = "http://localhost:8000/hf-proxy/";
+env.remotePathTemplate = "{model}/resolve/{revision}/";
+
+// Model from HuggingFace, voices served via Python backend proxy (port 8000)
+// Using Supertonic 2 (multilingual support)
+const MODEL_ID = "onnx-community/Supertonic-TTS-2-ONNX";
+const VOICES_URL = "http://localhost:8000/voices/";
 
 let pipelinePromise: Promise<TextToAudioPipeline> | null = null;
 let embeddingsPromise: Promise<Record<string, Float32Array>> | null = null;
@@ -91,6 +140,8 @@ export async function* streamTTS(
   speaker_embeddings: Float32Array,
   quality: number,
   speed: number,
+  language?: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<StreamResult> {
   const chunks = splitWithConstraints(text, {
     minCharacters: 100,
@@ -100,13 +151,23 @@ export async function* streamTTS(
   if (chunks.length === 0) chunks.push(text);
 
   for (let i = 0; i < chunks.length; ++i) {
+    if (signal?.aborted) break;
     const chunk = chunks[i];
     if (!chunk.trim()) continue;
 
-    const output = (await tts(chunk, {
+    // Wrap in language tags for Supertonic v2 native support
+    const supportedLangs = ['en', 'es', 'fr'];
+    const lang = language || 'en';
+    const taggedChunk = supportedLangs.includes(lang) 
+      ? `<${lang}>${chunk}</${lang}>`
+      : chunk;
+
+    const output = (await tts(taggedChunk, {
       speaker_embeddings,
       num_inference_steps: quality,
       speed,
+      // @ts-ignore - language is supported in Supertonic v2
+      language: lang,
     })) as RawAudio;
 
     if (i < chunks.length - 1) {

@@ -4,20 +4,40 @@
  */
 
 // Suppress noisy ONNX/hub warnings in worker
+const originalLog = console.log
 const originalWarn = console.warn
 const originalError = console.error
-const suppress = (...args) => args.some(arg => 
-  typeof arg === 'string' && (
-    arg.includes('onnxruntime') || 
-    arg.includes('VerifyEachNodeIsAssignedToAnEp') ||
-    arg.includes('session_state.cc') ||
-    arg.includes('[W:onnxruntime') ||
-    arg.includes('content-length') ||
-    arg.includes('Unknown model class')
+const originalInfo = console.info
+const originalDebug = console.debug
+
+const suppress = (...args) => {
+  const msg = args.map(arg => {
+    try { return String(arg); } catch(e) { return ""; }
+  }).join(' ')
+  
+  // Strip ANSI color codes and normalize
+  const cleanMsg = msg.replace(/\\x1B\\[[0-9;]*[mK]/g, '').toLowerCase()
+  
+  return (
+    cleanMsg.includes('onnxruntime') || 
+    cleanMsg.includes('verifyeachnodeisassignedtoanep') ||
+    cleanMsg.includes('session_state.cc') ||
+    cleanMsg.includes('execution providers') ||
+    cleanMsg.includes('unknown model class') ||
+    cleanMsg.includes('content-length')
   )
-)
-console.warn = function(...args) { if (!suppress(...args)) originalWarn.apply(console, args) }
-console.error = function(...args) { if (!suppress(...args)) originalError.apply(console, args) }
+}
+
+const interceptor = (original) => (...args) => {
+  if (suppress(...args)) return
+  original.apply(console, args)
+}
+
+console.log = interceptor(originalLog)
+console.warn = interceptor(originalWarn)
+console.error = interceptor(originalError)
+console.info = interceptor(originalInfo)
+console.debug = interceptor(originalDebug)
 
 import { AutoModel, pipeline, Tensor, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/+esm"
 
@@ -37,6 +57,8 @@ const MAX_NUM_PREV_BUFFERS = Math.ceil(SPEECH_PAD_SAMPLES / 512)
 // ============ State ============
 let sileroVad = null
 let transcriber = null
+let currentLanguage = "en"
+let uniqueId = "default"
 
 const BUFFER = new Float32Array(MAX_BUFFER_DURATION * INPUT_SAMPLE_RATE)
 let bufferPointer = 0
@@ -49,10 +71,17 @@ const prevBuffers = []
 let isProcessing = false  // Lock to prevent concurrent processing
 const audioQueue = []     // Queue for audio chunks while processing
 
-// Configure - use HuggingFace CDN (has proper CORS)
+// Configure - use Python backend proxy for models (port 8000)
 env.useBrowserCache = true
 env.allowLocalModels = false
-// Using default HuggingFace CDN - will switch to R2 once CORS is fixed
+env.remoteHost = "http://localhost:8000/hf-proxy/"
+env.remotePathTemplate = "{model}/resolve/{revision}/"
+
+// Suppress ONNX runtime warnings (3=error, 4=fatal)
+if (env.backends?.onnx) {
+  env.backends.onnx.logSeverityLevel = 3
+  env.backends.onnx.logVerbosityLevel = 0
+}
 
 // Detect WebGPU support and platform
 async function getDevice() {
@@ -170,8 +199,11 @@ async function transcribe(buffer) {
 
   self.postMessage({ type: "status", status: "transcribing", message: "Transcribing..." })
 
-  // English-only model - don't specify language/task
-  const result = await transcriber(buffer)
+  // Multilingual support - specify language if provided
+  const result = await transcriber(buffer, {
+    language: currentLanguage,
+    task: "transcribe"
+  })
 
   return result.text.trim()
 }
@@ -284,7 +316,7 @@ async function processAudioChunk(buffer) {
 
 // ============ Message Handler ============
 self.onmessage = async (event) => {
-  const { type, buffer } = event.data
+  const { type, buffer, language, uniqueId: newUniqueId } = event.data
 
   switch (type) {
     case "init":
@@ -293,6 +325,20 @@ self.onmessage = async (event) => {
       } catch (err) {
         console.error("[STT Worker] Init error:", err)
         self.postMessage({ type: "error", message: err.toString() })
+      }
+      break
+
+    case "setLanguage":
+      if (language) {
+        currentLanguage = language
+        console.log(`[STT Worker] Language set to: ${language}`)
+      }
+      break
+
+    case "setUniqueId":
+      if (newUniqueId) {
+        uniqueId = newUniqueId
+        console.log(`[STT Worker] UniqueId set to: ${newUniqueId}`)
       }
       break
 

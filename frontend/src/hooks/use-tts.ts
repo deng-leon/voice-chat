@@ -28,6 +28,7 @@ export function useTTS(options: UseTTSOptions = {}) {
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null)
   const [muted, setMutedState] = useState(false)
   const voiceRef = useRef<TTSVoice>("F1")
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   // Update status and notify
   const updateStatus = useCallback((newStatus: TTSStatus) => {
@@ -68,8 +69,8 @@ export function useTTS(options: UseTTSOptions = {}) {
   }, [updateStatus, onError])
 
   // Normalize text for TTS - replace fancy unicode with plain ASCII
-  const normalizeText = (text: string): string => {
-    return text
+  const normalizeText = (text: string, lang?: string): string => {
+    let normalized = text
       // Smart quotes to straight quotes
       .replace(/[\u2018\u2019]/g, "'")  // ' ' -> '
       .replace(/[\u201C\u201D]/g, '"')  // " " -> "
@@ -82,19 +83,30 @@ export function useTTS(options: UseTTSOptions = {}) {
       // Clean up extra spaces
       .replace(/\s+/g, " ")
       .trim()
+
+    // For Chinese, remove spaces between characters as Whisper/LLM might add them
+    if (lang === 'zh') {
+      normalized = normalized.replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2');
+    }
+    
+    return normalized
   }
 
   // Speak text
-  const speak = useCallback(async (text: string): Promise<void> => {
+  const speak = useCallback(async (text: string, lang?: string): Promise<void> => {
     if (!ttsRef.current || !embeddingsRef.current) {
       throw new Error("TTS not loaded")
     }
 
-    const normalizedText = normalizeText(text)
+    const normalizedText = normalizeText(text, lang)
     if (normalizedText !== text) {
       console.debug("[TTS] Text normalized:", { original: text, normalized: normalizedText })
     }
     updateStatus("speaking")
+
+    // Create abort controller for this speak request
+    abortControllerRef.current = new AbortController()
+    const signal = abortControllerRef.current.signal
 
     try {
       // Create audio context if needed
@@ -117,11 +129,21 @@ export function useTTS(options: UseTTSOptions = {}) {
       let sampleRate = 44100
 
       console.debug("[TTS] Starting streamTTS...")
-      for await (const result of streamTTS(normalizedText, ttsRef.current, speakerEmbedding, quality, speed)) {
+      for await (const result of streamTTS(normalizedText, ttsRef.current, speakerEmbedding, quality, speed, lang, signal)) {
+        if (signal.aborted) {
+          console.debug("[TTS] streamTTS aborted")
+          break
+        }
         console.debug("[TTS] Got chunk", result.index, "/", result.total)
         audioChunks.push(result.audio.audio)
         sampleRate = result.audio.sampling_rate
       }
+
+      if (signal.aborted) {
+        updateStatus("ready")
+        return
+      }
+
       console.debug("[TTS] streamTTS complete, chunks:", audioChunks.length)
 
       // Merge chunks
@@ -168,8 +190,18 @@ export function useTTS(options: UseTTSOptions = {}) {
 
   // Stop playback
   const stop = useCallback(() => {
+    // Abort pending inference
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+
     if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop()
+      try {
+        sourceNodeRef.current.stop()
+      } catch (e) {
+        // Source might already be stopped
+      }
       sourceNodeRef.current = null
     }
     updateStatus("ready")
@@ -208,5 +240,6 @@ export function useTTS(options: UseTTSOptions = {}) {
     isReady: status === "ready",
     isLoading: status === "loading",
     isSpeaking: status === "speaking",
+    modelLoaded: !!ttsRef.current && !!embeddingsRef.current,
   }
 }

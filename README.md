@@ -1,154 +1,70 @@
-# AI Voice Chat - 100% In-Browser
+# Enterprise AI Voice Assistant
 
-A hands-free AI voice assistant that runs entirely in your browser. Speech recognition, LLM, and text-to-speech all run locally using WebGPU - no API keys, no server, no data leaves your device. Just talk naturally and the AI responds.
+A high-performance, hybrid-edge voice assistant leveraging **WebGPU** for real-time client-side AI and **Python/Camunda** for backend business orchestration.
 
-## Live Demo
+## 🏗️ Hybrid Architecture Summary
 
-Try it now: [HuggingFace Space](https://huggingface.co/spaces/RickRossTN/ai-voice-chat)
+This system utilizes a hybrid-edge approach—leveraging the user's local hardware for latency-sensitive AI tasks while maintaining a secure Python-based bridge to enterprise workflows.
 
-## What Makes This Different
+### 1. Native npm Frontend (Next.js)
+- **Framework:** Next.js 16 + React 19 + Tailwind CSS 4.
+- **Environment:** High-performance **npm-based** setup located in `voice-chat/frontend`.
+- **Requirements:** Requires **Node.js v20+** for engine compatibility with Next.js 16 and Turbopack.
 
-**Everything runs in your browser:**
-- **Speech-to-Text**: Whisper model via WebGPU/WASM
-- **Voice Activity Detection**: Silero VAD detects when you're speaking
-- **LLM**: Qwen 1.5B via WebLLM (easily swappable - see below)
-- **Text-to-Speech**: Supertonic TTS with 10 natural voices
+### 2. In-Browser Multilingual AI (WebGPU)
+All heavy AI inference occurs directly in your browser using **WebGPU** acceleration:
+- **STT (Speech-to-Text):** **Transformers.js (v3)** running `Whisper-tiny` in a dedicated Web Worker with **VAD (Voice Activity Detection)** for efficient recording.
+- **LLM (Large Language Model):** **WebLLM** running `Qwen2.5-1.5B` (Desktop) or `Qwen2.5-0.5B` (**iOS/Mobile alternative**) for optimized memory usage. Supports real-time interruption via `interruptGenerate()`.
+- **TTS (Text-to-Speech):** **Supertonic-TTS-2** (ONNX) providing high-quality synthesis with **10 distinct personas**. "Gentle" (F1) is the default.
 
-No audio leaves your device. No API keys needed. Just open and talk.
+### 3. Python Backend & Camunda Integration
+Located in `voice-chat/backend`, the **Python 3.13** server coordinates business logic:
+- **FastAPI Core:** Real-time communication via **WebSockets**.
+- **Camunda/Zeebe Client:** Native integration using `pyzeebe` to trigger and monitor enterprise workflows.
+- **Enterprise Security:** Built-in **OAuth2** token management and **PyJWT** decoding for authenticated API transactions.
+- **HF Proxy:** Caching proxy for model shards and voice assets to bypass CORS and improve performance.
 
-## Swap In Your Own LLM
+### 4. Globalized Capabilities (EN, FR, ES)
+- **Native Multi-Language:** Transcription and synthesis for **English, French, and Spanish**.
+- **Localized Stalling:** A "Junior Receptionist" behavior engine provides 21+ localized safe phrases (e.g., *"One moment, I'm just verifying those records..."*) to mask backend processing latency.
 
-**The built-in LLM is just a demo.** The real value is the voice pipeline - STT, VAD, and TTS all wired up and working. Rip out the tiny in-browser model and point it at any LLM you want:
+---
 
-- **Claude, GPT-4, Gemini** - via API routes
-- **Ollama, LM Studio** - local inference servers  
-- **Any OpenAI-compatible endpoint**
+## 🚀 Quick Start
 
-It's ~10 lines of code to swap. See [Using a Different LLM](#using-a-different-llm) below.
-
-## Quick Start
-
+### Frontend (npm)
 ```bash
-# Install dependencies
-pnpm install
+cd voice-chat/frontend
+npm install
+npm run dev
+```
+*Note: Ensure Node.js is v20+.*
 
-# Run development server
-pnpm dev
+### Backend (Python)
+```bash
+cd voice-chat/backend
+# (Optional) Create venv
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python main.py
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in Chrome or Edge.
+---
 
-## What Downloads When
+## 🛠️ Tech Stack
+- **STT/TTS:** Transformers.js + ONNX Runtime Web
+- **LLM:** WebLLM + WebGPU
+- **Backend:** FastAPI + PyZeebe + PyJWT
+- **Styling:** Tailwind CSS v4
 
-| Asset | Size | When | Cached |
-|-------|------|------|--------|
-| Voice embeddings | ~500KB | Included in repo | ✓ Already local |
-| Whisper STT model | ~150MB | First use | ✓ IndexedDB |
-| Silero VAD model | ~2MB | First use | ✓ IndexedDB |
-| Qwen 1.5B LLM | ~900MB | First use | ✓ IndexedDB |
-| Supertonic TTS | ~50MB | First use | ✓ IndexedDB |
+---
 
-First load downloads ~1GB of models from HuggingFace CDN. After that, everything runs offline.
-
-## Requirements
-
-- **Browser**: Chrome 113+ or Edge 113+ (WebGPU required)
-- **RAM**: ~4GB available for models
-- **Microphone**: Required for voice input
-
-Falls back to WASM if WebGPU unavailable (slower but works everywhere).
-
-## How It Works
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         Browser                             │
-│                                                             │
-│  Microphone                                                 │
-│       |                                                     │
-│       v                                                     │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐ │
-│  │ Silero   │ > │ Whisper  │ > │ WebLLM   │ > │Supertonic│ │
-│  │ VAD      │   │ STT      │   │ (Qwen)   │   │ TTS      │ │
-│  └──────────┘   └──────────┘   └──────────┘   └──────────┘ │
-│       |              |              |              |        │
-│  Detects        Transcribes    Generates       Speaks      │
-│  speech         to text        response        response    │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Project Structure
-
-```
-src/
-├── app/
-│   ├── page.tsx              # Main voice chat UI
-│   ├── layout.tsx            # App layout
-│   └── globals.css           # Styles
-├── components/ui/            # UI components
-├── hooks/
-│   ├── use-webllm.ts         # WebLLM integration
-│   └── use-tts.ts            # TTS integration
-└── lib/
-    ├── tts.ts                # TTS pipeline
-    └── splitter.ts           # Text chunking
-
-public/
-├── stt-worker-esm.js         # Whisper + VAD worker
-├── vad-processor.js          # Audio worklet
-└── voices/                   # TTS voice embeddings (bundled)
-```
-
-## Using a Different LLM
-
-This demo uses WebLLM for fully local operation. To use an external LLM instead:
-
-1. Create an API route (e.g., `src/app/api/chat/route.ts`)
-2. In `page.tsx`, find `handleLLMResponse()` and replace the WebLLM call:
-
-```typescript
-// Instead of webllm.chat(), call your API:
-const response = await fetch("/api/chat", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ messages: conversationHistory })
-});
-const data = await response.json();
-return data.response;
-```
-
-## Tech Stack
-
-- **Framework**: Next.js 16, React 19
-- **STT**: Whisper via @huggingface/transformers
-- **VAD**: Silero VAD via ONNX Runtime
-- **LLM**: Qwen 1.5B via @mlc-ai/web-llm
-- **TTS**: Supertonic via @huggingface/transformers
-- **Styling**: Tailwind CSS v4
-
-## Voice Options
-
-10 voices bundled (5 female, 5 male):
-- F1: Calm, steady
-- F2: Bright, cheerful
-- F3: Professional
-- F4: Confident
-- F5: Gentle
-- M1: Lively, upbeat
-- M2: Deep, calm
-- M3: Authoritative
-- M4: Soft, friendly
-- M5: Warm
-
-## License
-
+## 📜 License
 MIT License - see [LICENSE](LICENSE)
 
-## Credits
-
-- [Whisper](https://github.com/openai/whisper) - OpenAI
-- [Silero VAD](https://github.com/snakers4/silero-vad) - Silero Team
-- [WebLLM](https://github.com/mlc-ai/web-llm) - MLC AI
-- [Transformers.js](https://github.com/huggingface/transformers.js) - Hugging Face
-- [Supertonic TTS](https://huggingface.co/onnx-community/Supertonic-TTS-ONNX) - Supertone
+## 🤝 Credits
+- [Next.js](https://nextjs.org/)
+- [Camunda/Zeebe](https://camunda.com/)
+- [WebLLM](https://webllm.mlc-ai.org/)
+- [Transformers.js](https://huggingface.co/docs/transformers.js)
+- [Supertonic TTS](https://huggingface.co/onnx-community/Supertonic-TTS-ONNX)
